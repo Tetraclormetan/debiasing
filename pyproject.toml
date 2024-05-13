@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "thesis-project"
+version = "0.1.0"
+description = ""
+authors = ["Aliaksandr Shcharbitski"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+dvc = {extras = ["gdrive"], version = "^3.50.1"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
