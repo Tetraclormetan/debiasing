@@ -1,0 +1,5 @@
+outs:
+- md5: ae544a9f7aeda055bc0ed3d423131f47
+  size: 131167062
+  hash: md5
+  path: cmnist.zip

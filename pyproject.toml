@@ -8,6 +8,8 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.12"
 dvc = {extras = ["gdrive"], version = "^3.50.1"}
+matplotlib = "^3.8.4"
+torchvision = "^0.18.0"
 
 
 [build-system]

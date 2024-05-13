@@ -1,0 +1,5 @@
+[core]
+    remote = thesis
+['remote "thesis"']
+    url = gdrive://1IsQ6jn4rIzJ9mxz77qqenl_q5boDlDvJ
+    gdrive_acknowledge_abuse = true
