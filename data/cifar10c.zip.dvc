@@ -1,0 +1,5 @@
+outs:
+- md5: 80ec93033d0a15481964fdc2a04142df
+  size: 560334213
+  hash: md5
+  path: cifar10c.zip
