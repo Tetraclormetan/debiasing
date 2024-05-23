@@ -10,6 +10,10 @@ python = "^3.9"
 dvc = {extras = ["gdrive"], version = "^3.50.1"}
 matplotlib = "^3.8.4"
 torchvision = "^0.18.0"
+flax = ">=0.7.5"
+clu = "^0.0.12"
+jax-resnet = "^0.0.4"
+jax = {extras = ["cpu"], version = "^0.4.28"}
 
 
 [build-system]
