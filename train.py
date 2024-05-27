@@ -3,6 +3,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from flax.core import FrozenDict
+import wandb
 
 from data_utils.CMNIST import CMNIST
 from data_utils.dataloaders import NumpyLoader
@@ -37,10 +38,18 @@ if __name__ == "__main__":
         batch_stats=FrozenDict(),
         metrics=Metrics.empty())
 
+    wandb.init(
+        project="my-test-project",
+        config=CONFIG
+    )
+
     train(
         train_loader=train_loader,
         val_loader=val_loader,
         train_step=train_step_GCE,
         train_state=train_state,
         num_epochs=CONFIG["num_epochs"],
+        use_wandb=True,
     )
+
+    wandb.finish()

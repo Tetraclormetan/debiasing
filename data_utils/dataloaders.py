@@ -6,8 +6,11 @@ class NumpyCast(object):
   def __call__(self, pic):
     return np.ravel(np.array(pic, dtype=np.float32)) #[...,np.newaxis]
 
-def numpy_collate(batch):
-  return jax.tree_util.tree_map(np.asarray, default_collate(batch))
+def collate_with_bias(batch):
+  imgs = jax.numpy.stack([el[0] for el in batch ])
+  labels = jax.numpy.stack([el[1] for el in batch])
+  biases = jax.numpy.stack([el[2] for el in batch])
+  return imgs, labels, biases
 
 class NumpyLoader(DataLoader):
   def __init__(self, dataset, batch_size=1,
@@ -21,7 +24,7 @@ class NumpyLoader(DataLoader):
         sampler=sampler,
         batch_sampler=batch_sampler,
         num_workers=num_workers,
-        collate_fn=numpy_collate,
+        collate_fn=collate_with_bias,
         pin_memory=pin_memory,
         drop_last=drop_last,
         timeout=timeout,

@@ -6,7 +6,8 @@ from flax.training import train_state
 from flax.core import FrozenDict
 import optax
 from clu import metrics
-from tqdm import tqdm, trange
+from tqdm import tqdm
+import wandb 
 
 
 @struct.dataclass
@@ -79,33 +80,42 @@ def train(
     train_step,
     train_state,
     num_epochs,
+    use_wandb=False,
 ):
-    state = train_state #create_train_state(model, input_shape, init_rng, opt_name, opt_params)
+    state = train_state
 
     metrics_history = {'train_loss': [],
                    'train_accuracy': [],
-                   'test_loss': [],
-                   'test_accuracy': []}
+                   'val_loss': [],
+                   'val_accuracy': []}
 
-    for epoch in trange(num_epochs):
-        for batch in tqdm(train_loader):
-            state = train_step(state, batch)
-            state = compute_metrics(state=state, batch=batch)
+    for epoch in tqdm(range(num_epochs), desc=f"{num_epochs} epochs", position=0, leave=True):
+        
+        iter_n = len(train_loader)
+        with tqdm(total=iter_n, desc=f"{iter_n} iterations", leave=False) as progress_bar:
+            for batch in train_loader:
+                state = train_step(state, batch)
+                state = compute_metrics(state=state, batch=batch)
+                progress_bar.update(1)
 
         for metric, value in state.metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
         state = state.replace(metrics=state.metrics.empty()) # reset train_metrics for next training epoch
 
         test_state = state
-        for test_batch in tqdm(val_loader):
+        for test_batch in val_loader:
             test_state = compute_metrics(state=test_state, batch=test_batch)
 
-        for metric,value in test_state.metrics.compute().items():
-            metrics_history[f'test_{metric}'].append(value)
+        for metric, value in test_state.metrics.compute().items():
+            metrics_history[f'val_{metric}'].append(value)
 
-        print(f"train epoch: {epoch + 1}, "
-              f"loss: {metrics_history['train_loss'][-1]}, "
-              f"accuracy: {metrics_history['train_accuracy'][-1] * 100}")
-        print(f"test epoch: {epoch + 1}, "
-              f"loss: {metrics_history['test_loss'][-1]}, "
-              f"accuracy: {metrics_history['test_accuracy'][-1] * 100}")
+        if use_wandb:
+            wandb.log({key: val[-1] for key, val in metrics_history.items()})
+        else:
+            print(f"train epoch: {epoch + 1}, "
+                f"loss: {metrics_history['train_loss'][-1]}, "
+                f"accuracy: {metrics_history['train_accuracy'][-1] * 100}")
+            print(f"test epoch: {epoch + 1}, "
+                f"loss: {metrics_history['val_loss'][-1]}, "
+                f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
+    return state
