@@ -28,13 +28,14 @@ def train_step_CE(state, batch):
   """Train for a single step."""
   image, label, _ = batch
   def loss_fn(params):
-    logits = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, image)
+    logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats},
+                            image, train=True, mutable=['batch_stats'])
     loss = optax.softmax_cross_entropy_with_integer_labels(
         logits=logits, labels=label).mean()
-    return loss
-  grad_fn = jax.grad(loss_fn)
-  grads = grad_fn(state.params)
-  state = state.apply_gradients(grads=grads)
+    return loss, new_batch_stats
+  grad_fn = jax.grad(loss_fn, has_aux=True)
+  grads, new_batch_stats = grad_fn(state.params)
+  state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
   return state
 
 
@@ -43,7 +44,8 @@ def train_step_GCE(state, batch, q=0.7):
   """Train for a single step."""
   images, labels, _ = batch
   def loss_fn(params):
-    logits = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, images)
+    logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, images,
+                            train=True, mutable=['batch_stats'])
     logits_max = jnp.max(logits, axis=-1, keepdims=True)
     logits -= jax.lax.stop_gradient(logits_max)
     label_logits = jnp.take_along_axis(logits, labels[..., None], axis=-1)[..., 0]
@@ -53,16 +55,18 @@ def train_step_GCE(state, batch, q=0.7):
     # loss = (1 - outputs**q).mean() / q
     log_probs_with_q = q * (label_logits - jnp.log(normalizers))
     loss = (1 - jnp.exp(log_probs_with_q).mean()) / q
-    return loss
-  grad_fn = jax.grad(loss_fn)
-  grads = grad_fn(state.params)
-  state = state.apply_gradients(grads=grads)
+    return loss, new_batch_stats
+  grad_fn = jax.grad(loss_fn, has_aux=True)
+  grads, new_batch_stats = grad_fn(state.params)
+  state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
   return state
+
 
 @jax.jit
 def compute_metrics(*, state, batch):
     images, labels, _ = batch
-    logits = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, images)
+    logits = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, images,
+                            train=False)
     loss = optax.softmax_cross_entropy_with_integer_labels(
         logits=logits, labels=labels).mean()
     metric_updates = state.metrics.single_from_model_output(
@@ -91,12 +95,9 @@ def train(
 
     for epoch in tqdm(range(num_epochs), desc=f"{num_epochs} epochs", position=0, leave=True):
         
-        iter_n = len(train_loader)
-        with tqdm(total=iter_n, desc=f"{iter_n} iterations", leave=False) as progress_bar:
-            for batch in train_loader:
-                state = train_step(state, batch)
-                state = compute_metrics(state=state, batch=batch)
-                progress_bar.update(1)
+        for batch in train_loader:
+            state = train_step(state, batch)
+            state = compute_metrics(state=state, batch=batch)
 
         for metric, value in state.metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
