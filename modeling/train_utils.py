@@ -95,7 +95,7 @@ def train(
 
     for epoch in tqdm(range(num_epochs), desc=f"{num_epochs} epochs", position=0, leave=True):
         
-        for batch in train_loader:
+        for batch in tqdm(train_loader):
             state = train_step(state, batch)
             state = compute_metrics(state=state, batch=batch)
 

@@ -41,11 +41,12 @@ if __name__ == "__main__":
     val_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
 
     key_rng, train_key = jax.random.split(key_rng)
+    key_rng, val_key = jax.random.split(key_rng)
     train_inmemory = get_inmemory_dataset(train_dataset, train_key, 
                         get_static_transform(), 
                         get_dynamic_transform(CONFIG['input_shape']))
     
-    val_inmemory = get_inmemory_dataset(val_dataset, None, 
+    val_inmemory = get_inmemory_dataset(val_dataset, val_key, 
                         get_static_transform(padding=0), 
                         lambda x, _: x)
 
