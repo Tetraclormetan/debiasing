@@ -51,8 +51,6 @@ if __name__ == "__main__":
                         lambda x, _: x)
 
     random_sampler = RandomSampler(train_inmemory, generator=Generator().manual_seed(42))
-    train_loader = NumpyLoader(dataset=train_inmemory, batch_size=CONFIG["batch_size"], num_workers=0, 
-                               pin_memory=True, sampler=random_sampler)
     val_loader = NumpyLoader(dataset=val_inmemory, batch_size=CONFIG['batch_size'], num_workers=0, 
                              pin_memory=True)
     
@@ -61,7 +59,7 @@ if __name__ == "__main__":
         config=CONFIG
     )
     final_state = train(
-        train_loader,
+        train_inmemory,
         val_loader,
         train_step_GCE,
         state,
@@ -76,7 +74,9 @@ if __name__ == "__main__":
         logits = state.apply_fn({"params": state.params, 'batch_stats': state.batch_stats}, images, train=False)
         batch_predicted = (jnp.argmax(logits, -1) == labels).astype(int)
         return batch_predicted
-
+    
+    train_loader = NumpyLoader(dataset=train_inmemory, batch_size=CONFIG["batch_size"], num_workers=0, 
+                               pin_memory=True)
     bias_predicted = jnp.zeros(len(train_dataset), dtype=int)
     index = 0
     for batch in train_loader:

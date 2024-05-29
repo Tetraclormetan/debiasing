@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from flax import struct
 from flax.training import train_state
 from flax.core import FrozenDict
+from flax.training.early_stopping import EarlyStopping
 import optax
 from clu import metrics
 from tqdm import tqdm
@@ -79,7 +80,7 @@ def compute_metrics(*, state, batch):
 
 
 def train(
-    train_loader,
+    train_dataset,
     val_loader,
     train_step,
     train_state,
@@ -92,10 +93,13 @@ def train(
                    'train_accuracy': [],
                    'val_loss': [],
                    'val_accuracy': []}
+    
+    early_stopping = EarlyStopping(min_delta=1e-4, patience=10)
 
     for epoch in tqdm(range(num_epochs), desc=f"{num_epochs} epochs", position=0, leave=True):
-        
-        for batch in tqdm(train_loader):
+        train_dataset.new_permutation()
+        for i in range(len(train_dataset) // train_dataset.batch_size):
+            batch = train_dataset.get_batch(i)
             state = train_step(state, batch)
             state = compute_metrics(state=state, batch=batch)
 
@@ -109,6 +113,11 @@ def train(
 
         for metric, value in test_state.metrics.compute().items():
             metrics_history[f'val_{metric}'].append(value)
+        
+        early_stopping.update(metrics_history['val_loss'])
+        if early_stopping.should_stop:
+            print("Early stopping")
+            break
 
         if use_wandb:
             wandb.log({key: val[-1] for key, val in metrics_history.items()})

@@ -7,14 +7,16 @@ from tqdm import tqdm
 from data_utils.CIFAR10C import CIFAR10C
 from data_utils.dataloaders import get_inmemory_dataset, get_dynamic_transform, get_static_transform, NumpyLoader
 from modeling.config import CONFIG
+from modeling.train_utils import compute_metrics, train_step_CE, Metrics, TrainStateWithStats
+from flaxmodels import ResNet18
+from modeling.optimizers import get_optimizer
+
 
 if __name__ == "__main__":
     key_rng = jax.random.key(0)
 
     train_dataset = CIFAR10C(env="train",bias_amount=0.95)
     train_dataset.transform = lambda x: jnp.asarray(x, dtype=jnp.float32)
-    val_dataset = CIFAR10C(env="val",bias_amount=0.95)
-    val_dataset.transform = lambda x: jnp.asarray(x, dtype=jnp.float32)
 
     key_rng, train_key = jax.random.split(key_rng)
     key_rng, val_key = jax.random.split(key_rng)
@@ -22,27 +24,32 @@ if __name__ == "__main__":
                         get_static_transform(), 
                         get_dynamic_transform(CONFIG['input_shape']))
 
-    val_inmemory = get_inmemory_dataset(val_dataset, val_key, 
-                        get_static_transform(padding=0), 
-                        lambda x, _: x)
-
     random_sampler = RandomSampler(train_inmemory, generator=Generator().manual_seed(42))
     train_loader = NumpyLoader(dataset=train_inmemory, batch_size=CONFIG["batch_size"], num_workers=0, 
                                 pin_memory=True, sampler=random_sampler)
-    val_loader = NumpyLoader(dataset=val_inmemory, batch_size=CONFIG['batch_size'], num_workers=0, 
-                                pin_memory=True)
     
-    i = 0
-    for batch in tqdm(train_loader):
-        if i==0:
-            print(batch[0].shape)
-            i=1
-    i=0
-    for i in tqdm(range(len(train_inmemory) // CONFIG['batch_size'])):
-        train_inmemory.get_batch(i)
-        if i==0:
-            print(batch[0].shape)
-            i=1
+    key_rng = jax.random.key(0)
+    key_rng, resnet_key = jax.random.split(key_rng)
 
-    for batch in tqdm(val_loader):
-        1+1
+    resnet18 = ResNet18(output='ligits',
+                   pretrained=None,
+                   normalize=False,
+                   num_classes=CONFIG["n_targets"])
+    variables = resnet18.init(resnet_key, jnp.zeros(CONFIG["input_shape"]))
+
+    optimizer = get_optimizer(CONFIG["opt_name"], CONFIG['opt_params'])
+
+    state = TrainStateWithStats.create(
+        apply_fn = resnet18.apply,
+        params = variables['params'],
+        tx = optimizer,
+        batch_stats = variables['batch_stats'],
+        metrics=Metrics.empty()
+    )
+
+    batch = next(iter(train_loader))
+
+    for _ in tqdm(range(len(train_loader))):
+        state = train_step_CE(state, batch)
+        state = compute_metrics(state=state, batch=batch)
+

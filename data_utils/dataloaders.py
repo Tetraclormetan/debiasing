@@ -3,6 +3,7 @@ import jax
 from torch.utils.data import DataLoader
 import jax.numpy as jnp
 
+@jax.jit
 def collate_with_bias(batch):
   imgs = jax.numpy.stack([el[0] for el in batch ])
   labels = jax.numpy.stack([el[1] for el in batch])
@@ -24,7 +25,7 @@ class NumpyLoader(DataLoader):
   def __init__(self, dataset, batch_size=1,
                 shuffle=False, sampler=None,
                 batch_sampler=None, num_workers=0,
-                pin_memory=False, drop_last=False,
+                pin_memory=False, drop_last=True,
                 timeout=0, worker_init_fn=None,
                 collate_fn=collate_with_bias):
     super(self.__class__, self).__init__(dataset,
@@ -44,12 +45,16 @@ class NumpyLoader(DataLoader):
 class InMemoryDataset:
     def __init__(self, imgs, labels, biases,
                 load_transform,
-                rng_key):
+                rng_key,
+                batch_size=32):
         self.imgs = imgs
         self.labels = labels
         self.biases = biases
         self.load_transform = load_transform
         self.rng_key = rng_key
+        self.batch_size = batch_size
+        self.new_permutation()
+
     
     def __len__(self):
         return len(self.labels)
@@ -57,6 +62,20 @@ class InMemoryDataset:
     def __getitem__(self, i):
         self.rng_key, subkey = jax.random.split(self.rng_key)
         return self.load_transform(self.imgs[i], subkey), self.labels[i], self.biases[i]
+    
+    def new_permutation(self):
+        self.rng_key, subkey = jax.random.split(self.rng_key)
+        self.permutation = jax.random.permutation(subkey, len(self.labels))
+    
+    
+    def get_batch(self, i):
+        subkeys = jax.random.split(self.rng_key, self.batch_size + 1)
+        self.rng_key = subkeys[0]
+        ids = self.permutation[i * self.batch_size: (1 + i) * self.batch_size]
+        batch_transform = jax.vmap(self.load_transform, (0, 0), 0)
+        return batch_transform(self.imgs[ids], subkeys[1:]), self.labels[ids], self.biases[ids]
+
+
 
 def get_inmemory_dataset(dataset, rng_key, init_transform, load_transform):
         imgs = np.zeros((len(dataset),) + dataset[0][0].shape,dtype=float)
