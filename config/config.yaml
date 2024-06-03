@@ -1,0 +1,7 @@
+batch_size: 32
+num_epochs: 100
+GCE_q: 0.7
+biases_path: data/biases.npy
+defaults:
+ - dataset: cifar10c
+ - optimizer: adam

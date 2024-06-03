@@ -1,0 +1,5 @@
+name: Adam
+init_params:
+  learning_rate: 0.000005
+  b1: 0.9
+  b2: 0.999

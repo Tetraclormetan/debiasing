@@ -9,6 +9,10 @@ import optax
 from clu import metrics
 from tqdm import tqdm
 import wandb 
+from omegaconf import DictConfig
+
+from modeling.models import get_model_and_variables
+from modeling.optimizers import get_optimizer
 
 
 @struct.dataclass
@@ -16,12 +20,11 @@ class Metrics(metrics.Collection):
     accuracy: metrics.Accuracy
     loss: metrics.Average.from_output('loss') # type: ignore
 
-# class TrainState(train_state.TrainState):
-#     metrics: Metrics
 
 class TrainStateWithStats(train_state.TrainState):
         batch_stats: FrozenDict
-        metrics: Metrics
+        unmasked_metrics: Metrics
+        conflicting_accuracy: metrics.Average
 
 
 @jax.jit
@@ -64,16 +67,23 @@ def train_step_GCE(state, batch, q=0.7):
 
 
 @jax.jit
-def compute_metrics(*, state, batch):
-    images, labels, _ = batch
+def compute_metrics(*, state: TrainStateWithStats, batch):
+    images, labels, biases = batch
     logits = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, images,
                             train=False)
     loss = optax.softmax_cross_entropy_with_integer_labels(
         logits=logits, labels=labels).mean()
-    metric_updates = state.metrics.single_from_model_output(
+    
+    metric_updates = state.unmasked_metrics.single_from_model_output(
         logits=logits, labels=labels, loss=loss)
-    metrics = state.metrics.merge(metric_updates)
-    state = state.replace(metrics=metrics)
+    unmasked_metrics = state.unmasked_metrics.merge(metric_updates)
+    state = state.replace(unmasked_metrics=unmasked_metrics)
+    
+    conflicting_update = state.conflicting_accuracy.from_model_output(
+        logits=logits, labels=labels, mask=biases)
+    conflicting_accuracy = state.conflicting_accuracy.merge(conflicting_update)
+    state = state.replace(conflicting_accuracy=conflicting_accuracy)
+
     return state
 
 # TODO: add metrics for unbiased?
@@ -83,7 +93,7 @@ def train(
     train_dataset,
     val_loader,
     train_step,
-    train_state,
+    train_state: TrainStateWithStats,
     num_epochs,
     use_wandb=False,
 ):
@@ -92,7 +102,10 @@ def train(
     metrics_history = {'train_loss': [],
                    'train_accuracy': [],
                    'val_loss': [],
-                   'val_accuracy': []}
+                   'val_accuracy': [],
+                   'train_conflicting_accuracy': [],
+                   'val_conflicting_accuracy': []
+                   }
     
     early_stopping = EarlyStopping(min_delta=1e-4, patience=10)
 
@@ -103,16 +116,24 @@ def train(
             state = train_step(state, batch)
             state = compute_metrics(state=state, batch=batch)
 
-        for metric, value in state.metrics.compute().items(): # compute metrics
+        for metric, value in state.unmasked_metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
-        state = state.replace(metrics=state.metrics.empty()) # reset train_metrics for next training epoch
+        metrics_history['train_conflicting_accuracy'] = state.conflicting_accuracy.compute()
+
+        state = state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
+        state = state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
 
         test_state = state
         for test_batch in val_loader:
             test_state = compute_metrics(state=test_state, batch=test_batch)
 
-        for metric, value in test_state.metrics.compute().items():
+        for metric, value in test_state.unmasked_metrics.compute().items():
             metrics_history[f'val_{metric}'].append(value)
+        metrics_history['val_conflicting_accuracy'] = test_state.conflicting_accuracy.compute()
+
+        test_state = test_state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
+        test_state = test_state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
+
         
         early_stopping.update(metrics_history['val_loss'])
         if early_stopping.should_stop:
@@ -129,3 +150,31 @@ def train(
                 f"loss: {metrics_history['val_loss'][-1]}, "
                 f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
     return state
+
+
+def flatten_tree(tree_node, parent_key='', sep='_'):
+    items = []
+    for k, v in tree_node.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, DictConfig):
+            items.extend(flatten_tree(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
+def get_state_from_config(config, init_key):
+    #resnet18 = ResNet18(output='logits', pretrained=None, normalize=False, num_classes=config["n_targets"])
+    #variables = resnet18.init(init_key, jnp.zeros(config["input_shape"]))
+
+    model, variables = get_model_and_variables(config["dataset"]["model"], init_key)
+
+    optimizer = get_optimizer(config["optimizer"])
+    return TrainStateWithStats.create(
+        apply_fn = model.apply,
+        params = variables['params'],
+        tx = optimizer,
+        batch_stats = variables['batch_stats'],
+        unmasked_metrics=Metrics.empty(),
+        conflicting_accuracy = metrics.Accuracy.empty()
+    )

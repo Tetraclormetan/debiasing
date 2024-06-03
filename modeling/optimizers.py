@@ -4,13 +4,14 @@ import jax.numpy as jnp
 from flax.core import FrozenDict, frozen_dict
 from typing import Dict
 
-def get_optimizer(name: str, opt_params: Dict):
-    if name == "Adam":
-        return optax.adam(**opt_params)
-    elif name == "AdamW":
-        return optax.adamw(**opt_params)
+def get_optimizer(optimizer_dict: Dict):
+    if optimizer_dict["name"] == "Adam":
+        return optax.adam(**optimizer_dict["init_params"])
+    elif optimizer_dict["name"] == "AdamW":
+        return optax.adamw(**optimizer_dict["init_params"])
     else:
-        return optax.sgd(**opt_params)
+        raise ValueError("optimizer not implemented")
+        #return optax.sgd(**opt_params)
 
 def zero_grads():
     '''
@@ -37,8 +38,8 @@ def create_mask(params, label_fn):
     _map(params, mask, label_fn)
     return frozen_dict.freeze(mask)
 
-def get_masked_optimizer(name: str, opt_params: Dict, variables, mask_fn):
-    optimizer = get_optimizer(name, opt_params)
+def get_masked_optimizer(opt_params: Dict, variables, mask_fn):
+    optimizer = get_optimizer(opt_params)
     masked_optimizer = optax.multi_transform(
         {'non_zero': optimizer, 'zero': zero_grads()},
         create_mask(variables['params'], mask_fn)

@@ -2,13 +2,16 @@ import numpy as np
 import jax
 from torch.utils.data import DataLoader
 import jax.numpy as jnp
+from data_utils.CIFAR10C import CIFAR10C
+
 
 @jax.jit
 def collate_with_bias(batch):
-  imgs = jax.numpy.stack([el[0] for el in batch ])
+  imgs = jax.numpy.stack([el[0] for el in batch])
   labels = jax.numpy.stack([el[1] for el in batch])
   biases = jax.numpy.stack([el[2] for el in batch])
   return imgs, labels, biases
+
 
 def get_collate(shape):
     @jax.jit
@@ -54,7 +57,6 @@ class InMemoryDataset:
         self.rng_key = rng_key
         self.batch_size = batch_size
         self.new_permutation()
-
     
     def __len__(self):
         return len(self.labels)
@@ -66,7 +68,6 @@ class InMemoryDataset:
     def new_permutation(self):
         self.rng_key, subkey = jax.random.split(self.rng_key)
         self.permutation = jax.random.permutation(subkey, len(self.labels))
-    
     
     def get_batch(self, i):
         subkeys = jax.random.split(self.rng_key, self.batch_size + 1)
@@ -98,6 +99,7 @@ def get_dynamic_transform(input_shape, padding=4):
         return out
     return jax.jit(dynamic_transform)
 
+
 def get_static_transform(padding=4):
     def static_full_dataset_transform(x):
         x = x / 255.
@@ -107,3 +109,36 @@ def get_static_transform(padding=4):
         x = jax.nn.standardize(x, mean=mean, variance=variance)
         return x
     return jax.jit(static_full_dataset_transform)
+
+
+def get_cifar(config, data_key):
+    train_dataset = CIFAR10C(env="train",bias_amount=0.95)
+    train_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
+    val_dataset = CIFAR10C(env="val",bias_amount=0.95)
+    val_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
+
+    train_key, val_key = jax.random.split(data_key)
+
+    train_inmemory = get_inmemory_dataset(train_dataset, train_key, 
+                        get_static_transform(), 
+                        get_dynamic_transform(config["dataset"]["model"]['input_shape']))
+    
+    val_inmemory = get_inmemory_dataset(val_dataset, val_key, 
+                        get_static_transform(padding=0), 
+                        lambda x, _: x)
+    
+    # random_sampler = RandomSampler(train_inmemory, generator=Generator().manual_seed(42))
+    val_loader = NumpyLoader(dataset=val_inmemory, batch_size=config['batch_size'], num_workers=0,
+                            pin_memory=True)
+    train_loader_sequential = NumpyLoader(dataset=train_inmemory, batch_size=config["batch_size"], num_workers=0,
+                            pin_memory=True)
+    
+    return train_inmemory, val_loader, train_loader_sequential
+
+
+def get_data_from_config(config, data_key):
+    if config["dataset"]["name"] == "CIFAR10C":
+        data = get_cifar(config, data_key)
+    else:
+        raise ValueError(f"Unknown dataset {config['dataset']['name']}")
+    return data
