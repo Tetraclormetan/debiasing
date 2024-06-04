@@ -5,7 +5,7 @@ import hydra
 from omegaconf import DictConfig
 from functools import partial
 
-from modeling.train_utils import train_model_wandb, train_step_GCE, get_state_from_config
+from modeling.train_utils import train_model_wandb, train_step_GCE, train_step_CE, get_state_from_config
 from data_utils.dataloaders import get_data_from_config, save_biases
 
 
@@ -38,7 +38,10 @@ def first_stage_pipeline(config : DictConfig) -> None:
     key_rng, data_key = jax.random.split(key_rng)
     train_dataset, val_loader, train_loader_sequential = get_data_from_config(config, data_key)
     
-    train_step = jax.jit(partial(train_step_GCE, q=config["GCE_q"]))
+    if config['stage']['name'] == "bias_identification":
+        train_step = jax.jit(partial(train_step_GCE, q=config["GCE_q"]))
+    else:
+        train_step = train_step_CE
 
     state = train_model_wandb(train_dataset, val_loader, train_step, state, config, 
                               project_name=config['stage']['name'])
