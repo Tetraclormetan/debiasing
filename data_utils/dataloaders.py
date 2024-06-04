@@ -24,6 +24,7 @@ def get_collate(shape):
         return imgs, labels, biases
     return collate_with_bias_and_resize
 
+
 class NumpyLoader(DataLoader):
   def __init__(self, dataset, batch_size=1,
                 shuffle=False, sampler=None,
@@ -42,21 +43,21 @@ class NumpyLoader(DataLoader):
         drop_last=drop_last,
         timeout=timeout,
         worker_init_fn=worker_init_fn)
-    
 
 
 class InMemoryDataset:
     def __init__(self, imgs, labels, biases,
                 load_transform,
                 rng_key,
-                batch_size=32):
+                batch_size,
+                weights):
         self.imgs = imgs
         self.labels = labels
         self.biases = biases
         self.load_transform = load_transform
         self.rng_key = rng_key
         self.batch_size = batch_size
-        self.new_permutation()
+        self.weights = weights
     
     def __len__(self):
         return len(self.labels)
@@ -67,7 +68,11 @@ class InMemoryDataset:
     
     def new_permutation(self):
         self.rng_key, subkey = jax.random.split(self.rng_key)
-        self.permutation = jax.random.permutation(subkey, len(self.labels))
+        if self.weights is None:
+            self.permutation = jax.random.permutation(subkey, len(self.labels))
+        else:
+            self.permutation = jax.random.choice(subkey, jnp.arange(len(self.labels)),
+                                                (len(self.labels),), p=self.weights)
     
     def get_batch(self, i):
         subkeys = jax.random.split(self.rng_key, self.batch_size + 1)
@@ -77,8 +82,7 @@ class InMemoryDataset:
         return batch_transform(self.imgs[ids], subkeys[1:]), self.labels[ids], self.biases[ids]
 
 
-
-def get_inmemory_dataset(dataset, rng_key, init_transform, load_transform):
+def get_inmemory_dataset(dataset, rng_key, init_transform, load_transform, batch_size, weights):
         imgs = np.zeros((len(dataset),) + dataset[0][0].shape,dtype=float)
         labels = np.zeros((len(dataset)),dtype=int)
         biases = np.zeros((len(dataset)),dtype=int)
@@ -87,7 +91,7 @@ def get_inmemory_dataset(dataset, rng_key, init_transform, load_transform):
             labels[i] = np.asarray(el[1])
             biases[i] = np.asarray(el[2])
         imgs = init_transform(imgs)
-        return InMemoryDataset(imgs, labels, biases, load_transform, rng_key)
+        return InMemoryDataset(imgs, labels, biases, load_transform, rng_key, batch_size, weights)
         
 
 def get_dynamic_transform(input_shape, padding=4):
@@ -112,25 +116,34 @@ def get_static_transform(padding=4):
 
 
 def get_cifar(config, data_key):
-    train_dataset = CIFAR10C(env="train",bias_amount=0.95)
+    dataset_config, stage_config = config["dataset"], config["stage"]
+
+    train_dataset = CIFAR10C(env="train", bias_amount=dataset_config['bias_amount'])
     train_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
-    val_dataset = CIFAR10C(env="val",bias_amount=0.95)
+    val_dataset = CIFAR10C(env="val", bias_amount=dataset_config['bias_amount'])
     val_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
 
     train_key, val_key = jax.random.split(data_key)
 
-    train_inmemory = get_inmemory_dataset(train_dataset, train_key, 
-                        get_static_transform(), 
-                        get_dynamic_transform(config["dataset"]["model"]['input_shape']))
+    train_data_weights = None
+    if stage_config['use_weighted_sampling'] == True:
+        correct_predictions = load_biases(stage_config['first_stage_result_path'])
+        train_data_weights = jax.numpy.where(correct_predictions, 1, stage_config["upsampling_constant"])
+
+    train_inmemory = get_inmemory_dataset(dataset=train_dataset, rng_key=train_key, 
+                        init_transform=get_static_transform(), 
+                        load_transform=get_dynamic_transform(dataset_config["model"]['input_shape']),
+                        batch_size=dataset_config["batch_size"],
+                        weights=train_data_weights)
+    val_inmemory = get_inmemory_dataset(dataset=val_dataset, rng_key=val_key, 
+                        init_transform=get_static_transform(padding=0), 
+                        load_transform=lambda x, _: x,
+                        batch_size=dataset_config["batch_size"],
+                        weights=None)
     
-    val_inmemory = get_inmemory_dataset(val_dataset, val_key, 
-                        get_static_transform(padding=0), 
-                        lambda x, _: x)
-    
-    # random_sampler = RandomSampler(train_inmemory, generator=Generator().manual_seed(42))
-    val_loader = NumpyLoader(dataset=val_inmemory, batch_size=config['batch_size'], num_workers=0,
+    val_loader = NumpyLoader(dataset=val_inmemory, batch_size=dataset_config['batch_size'], num_workers=0,
                             pin_memory=True)
-    train_loader_sequential = NumpyLoader(dataset=train_inmemory, batch_size=config["batch_size"], num_workers=0,
+    train_loader_sequential = NumpyLoader(dataset=train_inmemory, batch_size=dataset_config["batch_size"], num_workers=0,
                             pin_memory=True)
     
     return train_inmemory, val_loader, train_loader_sequential
@@ -142,3 +155,16 @@ def get_data_from_config(config, data_key):
     else:
         raise ValueError(f"Unknown dataset {config['dataset']['name']}")
     return data
+
+
+def save_biases(biases, path):
+    with open(path, 'w') as file:
+        pass
+    with open(path, 'wb') as f:
+        jnp.save(f, biases)
+
+
+def load_biases(path):
+    with open(path, "rb") as f:
+        biases = jnp.load(f)
+    return biases

@@ -25,5 +25,5 @@ def get_model_and_variables(model_config_dict, init_key):
         model = ResNet18(model_config_dict)
         variables = model.init(init_key, jnp.zeros(model_config_dict["input_shape"]))
     else:
-        raise ValueError(f"Model not implemented {model_config_dict["name"]}")
+        raise ValueError(f"Model not implemented {model_config_dict['name']}")
     return model, variables

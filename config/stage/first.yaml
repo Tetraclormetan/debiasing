@@ -1,0 +1,4 @@
+name: bias_identification
+save_predicted_errors: True
+use_weighted_sampling: False
+first_stage_result_path: data/biases.npy

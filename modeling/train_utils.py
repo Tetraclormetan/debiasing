@@ -1,4 +1,3 @@
-# All the functionality for training
 import jax
 import jax.numpy as jnp
 from flax import struct
@@ -13,6 +12,7 @@ from omegaconf import DictConfig
 
 from modeling.models import get_model_and_variables
 from modeling.optimizers import get_optimizer
+from data_utils.dataloaders import InMemoryDataset
 
 
 @struct.dataclass
@@ -80,7 +80,7 @@ def compute_metrics(*, state: TrainStateWithStats, batch):
     state = state.replace(unmasked_metrics=unmasked_metrics)
     
     conflicting_update = state.conflicting_accuracy.from_model_output(
-        logits=logits, labels=labels, mask=biases)
+        logits=logits, labels=labels, mask=biases - 1)
     conflicting_accuracy = state.conflicting_accuracy.merge(conflicting_update)
     state = state.replace(conflicting_accuracy=conflicting_accuracy)
 
@@ -90,7 +90,7 @@ def compute_metrics(*, state: TrainStateWithStats, batch):
 
 
 def train(
-    train_dataset,
+    train_dataset: InMemoryDataset,
     val_loader,
     train_step,
     train_state: TrainStateWithStats,
@@ -118,7 +118,7 @@ def train(
 
         for metric, value in state.unmasked_metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
-        metrics_history['train_conflicting_accuracy'] = state.conflicting_accuracy.compute()
+        metrics_history['train_conflicting_accuracy'].append(state.conflicting_accuracy.compute())
 
         state = state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
         state = state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
@@ -129,12 +129,11 @@ def train(
 
         for metric, value in test_state.unmasked_metrics.compute().items():
             metrics_history[f'val_{metric}'].append(value)
-        metrics_history['val_conflicting_accuracy'] = test_state.conflicting_accuracy.compute()
+        metrics_history['val_conflicting_accuracy'].append(test_state.conflicting_accuracy.compute())
 
         test_state = test_state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
         test_state = test_state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
 
-        
         early_stopping.update(metrics_history['val_loss'])
         if early_stopping.should_stop:
             print("Early stopping")
@@ -150,6 +149,28 @@ def train(
                 f"loss: {metrics_history['val_loss'][-1]}, "
                 f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
     return state
+
+
+
+def train_model_wandb(train_dataset, val_loader, train_step,  state, config_dict,
+                      project_name=None):
+    use_wandb = project_name is not None
+    if use_wandb:
+        wandb.init(
+            project=project_name,
+            config=flatten_tree(config_dict)
+        )
+    final_state = train(
+        train_dataset,
+        val_loader,
+        train_step,
+        state,
+        config_dict["num_epochs"],
+        use_wandb=use_wandb,
+    )
+    if use_wandb:
+        wandb.finish()
+    return final_state
 
 
 def flatten_tree(tree_node, parent_key='', sep='_'):
