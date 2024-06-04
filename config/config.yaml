@@ -1,6 +1,7 @@
 num_epochs: 100
 GCE_q: 0.7
 biases_path: data/biases.npy
+checkpoint_path: 'C:\\Users\\aliak\\tmp'
 defaults:
  - dataset: cifar10c
  - optimizer: adam

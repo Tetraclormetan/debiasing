@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import orbax.checkpoint as ocp
 from flax import struct
 from flax.training import train_state
 from flax.core import FrozenDict
@@ -95,8 +96,13 @@ def train(
     train_step,
     train_state: TrainStateWithStats,
     num_epochs,
+    checkpoint_path,
     use_wandb=False,
 ):
+    checkpoint_path = ocp.test_utils.erase_and_create_empty(checkpoint_path)
+    options = ocp.CheckpointManagerOptions(max_to_keep=3, save_interval_steps=3)
+    checkpoint_manager = ocp.CheckpointManager(checkpoint_path, options=options)
+
     state = train_state
 
     metrics_history = {'train_loss': [],
@@ -134,10 +140,13 @@ def train(
         test_state = test_state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
         test_state = test_state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
 
-        early_stopping.update(metrics_history['val_loss'])
+        
+        early_stopping.update(metrics_history['val_loss'][-1])
         if early_stopping.should_stop:
             print("Early stopping")
             break
+        if jnp.argmax(jnp.asarray(metrics_history['val_loss'])) == len(metrics_history['val_loss']) - 1:
+            checkpoint_manager.save(epoch, args=ocp.args.StandardSave(train_state))
 
         if use_wandb:
             wandb.log({key: val[-1] for key, val in metrics_history.items()})
@@ -148,11 +157,14 @@ def train(
             print(f"test epoch: {epoch + 1}, "
                 f"loss: {metrics_history['val_loss'][-1]}, "
                 f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
-    return state
+            
+    checkpoint_manager.wait_until_finished()
+    restored_state = checkpoint_manager.restore(checkpoint_manager.latest_step())
+    return restored_state
 
 
 
-def train_model_wandb(train_dataset, val_loader, train_step,  state, config_dict,
+def train_model_wandb(train_dataset, val_loader, train_step, state, config_dict,
                       project_name=None):
     use_wandb = project_name is not None
     if use_wandb:
@@ -167,6 +179,7 @@ def train_model_wandb(train_dataset, val_loader, train_step,  state, config_dict
         state,
         config_dict["num_epochs"],
         use_wandb=use_wandb,
+        checkpoint_path=config_dict['checkpoint_path'],
     )
     if use_wandb:
         wandb.finish()

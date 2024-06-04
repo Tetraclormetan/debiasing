@@ -43,7 +43,7 @@ def first_stage_pipeline(config : DictConfig) -> None:
     else:
         train_step = train_step_CE
 
-    state = train_model_wandb(train_dataset, val_loader, train_step, state, config, 
+    state = train_model_wandb(train_dataset, val_loader, train_step, state, config,
                               project_name=config['stage']['name'])
     
     if config['stage']['name'] == "bias_identification" and config['stage']['save_predicted_errors']:
