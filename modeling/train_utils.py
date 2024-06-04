@@ -145,7 +145,7 @@ def train(
         if early_stopping.should_stop:
             print("Early stopping")
             break
-        if jnp.argmax(jnp.asarray(metrics_history['val_loss'])) == len(metrics_history['val_loss']) - 1:
+        if jnp.argmin(jnp.asarray(metrics_history['val_loss'])) == len(metrics_history['val_loss']) - 1:
             checkpoint_manager.save(epoch, args=ocp.args.StandardSave(train_state))
 
         if use_wandb:
