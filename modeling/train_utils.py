@@ -159,8 +159,12 @@ def train(
                 f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
             
     checkpoint_manager.wait_until_finished()
-    restored_state = checkpoint_manager.restore(checkpoint_manager.latest_step())
-    return restored_state
+    restored_state_dict = checkpoint_manager.restore(checkpoint_manager.latest_step())
+    state = state.replace(params=restored_state_dict['params'])
+    state = state.replace(batch_stats=restored_state_dict['batch_stats'])
+    state = state.replace(unmasked_metrics=Metrics.empty())
+    state = state.replace(conflicting_accuracy=metrics.Accuracy.empty())
+    return state
 
 
 
