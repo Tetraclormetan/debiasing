@@ -3253,13 +3253,13 @@ tests = ["fakeredis", "pytest"]
 
 [[package]]
 name = "orbax-checkpoint"
-version = "0.5.11"
+version = "0.5.15"
 description = "Orbax Checkpoint"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "orbax_checkpoint-0.5.11-py3-none-any.whl", hash = "sha256:a0950119f6fece0d2e2d84e04c6ca2136b6c2a59ef996927765f8511d8ee4139"},
-    {file = "orbax_checkpoint-0.5.11.tar.gz", hash = "sha256:64161132c83888c2ccee4db80078914507e5f35ad47bcf5bfc5fa2b07036a2a7"},
+    {file = "orbax_checkpoint-0.5.15-py3-none-any.whl", hash = "sha256:658dd89bc925cecc584d89eaa19af9a7e16e3371377907eb713fbd59b85262e4"},
+    {file = "orbax_checkpoint-0.5.15.tar.gz", hash = "sha256:15195e8d1b381b56f23a62a25599a3644f5d08655fa64f60bb1b938b8ffe7ef3"},
 ]
 
 [package.dependencies]
@@ -5407,4 +5407,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "b544493a8ed74f709528466fd6e08d1742f0095006149271b48dd174562d9fff"
+content-hash = "42696a5c56171fc6f84ceec3d51c777de52e2e1685aec50d5b873a5449a8ea3f"

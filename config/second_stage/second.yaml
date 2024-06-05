@@ -1,0 +1,8 @@
+name: unbiased_training
+loss: 
+  name: CE
+num_epochs: 100
+use_weighted_sampling: True
+upsampling_constant: 20
+first_stage_result_path: data/biases.npy
+checkpoint_path: null

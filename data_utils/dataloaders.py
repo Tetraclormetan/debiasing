@@ -115,9 +115,7 @@ def get_static_transform(padding=4):
     return jax.jit(static_full_dataset_transform)
 
 
-def get_cifar(config, data_key):
-    dataset_config, stage_config = config["dataset"], config["stage"]
-
+def get_cifar(dataset_config, stage_config, data_key):
     train_dataset = CIFAR10C(env="train", bias_amount=dataset_config['bias_amount'])
     train_dataset.transform = lambda x: jnp.asarray(x, dtype=np.float32)
     val_dataset = CIFAR10C(env="val", bias_amount=dataset_config['bias_amount'])
@@ -149,11 +147,11 @@ def get_cifar(config, data_key):
     return train_inmemory, val_loader, train_loader_sequential
 
 
-def get_data_from_config(config, data_key):
-    if config["dataset"]["name"] == "CIFAR10C":
-        data = get_cifar(config, data_key)
+def get_data_from_config(dataset_config, stage_config, data_key):
+    if dataset_config["name"] == "CIFAR10C":
+        data = get_cifar(dataset_config, stage_config, data_key)
     else:
-        raise ValueError(f"Unknown dataset {config['dataset']['name']}")
+        raise ValueError(f"Unknown dataset {dataset_config['name']}")
     return data
 
 

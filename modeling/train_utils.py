@@ -99,9 +99,11 @@ def train(
     checkpoint_path,
     use_wandb=False,
 ):
-    checkpoint_path = ocp.test_utils.erase_and_create_empty(checkpoint_path)
-    options = ocp.CheckpointManagerOptions(max_to_keep=3, save_interval_steps=3)
-    checkpoint_manager = ocp.CheckpointManager(checkpoint_path, options=options)
+    use_checkpoints = checkpoint_path is not None
+    if use_checkpoints:
+        checkpoint_path = ocp.test_utils.erase_and_create_empty(checkpoint_path)
+        options = ocp.CheckpointManagerOptions(max_to_keep=3, save_interval_steps=2)
+        checkpoint_manager = ocp.CheckpointManager(checkpoint_path, options=options)
 
     state = train_state
 
@@ -145,8 +147,9 @@ def train(
         if early_stopping.should_stop:
             print("Early stopping")
             break
-        if jnp.argmin(jnp.asarray(metrics_history['val_loss'])) == len(metrics_history['val_loss']) - 1:
-            checkpoint_manager.save(epoch, args=ocp.args.StandardSave(train_state))
+        if use_checkpoints and \
+            jnp.argmin(jnp.asarray(metrics_history['val_loss'])) == len(metrics_history['val_loss']) - 1:
+                checkpoint_manager.save(epoch, args=ocp.args.StandardSave(train_state))
 
         if use_wandb:
             wandb.log({key: val[-1] for key, val in metrics_history.items()})
@@ -158,18 +161,19 @@ def train(
                 f"loss: {metrics_history['val_loss'][-1]}, "
                 f"accuracy: {metrics_history['val_accuracy'][-1] * 100}")
             
-    checkpoint_manager.wait_until_finished()
-    restored_state_dict = checkpoint_manager.restore(checkpoint_manager.latest_step())
-    state = state.replace(params=restored_state_dict['params'])
-    state = state.replace(batch_stats=restored_state_dict['batch_stats'])
-    state = state.replace(unmasked_metrics=Metrics.empty())
-    state = state.replace(conflicting_accuracy=metrics.Accuracy.empty())
+    if use_checkpoints:
+        checkpoint_manager.wait_until_finished()
+        restored_state_dict = checkpoint_manager.restore(checkpoint_manager.latest_step())
+        state = state.replace(params=restored_state_dict['params'])
+        state = state.replace(batch_stats=restored_state_dict['batch_stats'])
+        state = state.replace(unmasked_metrics=Metrics.empty())
+        state = state.replace(conflicting_accuracy=metrics.Accuracy.empty())
     return state
 
 
 
 def train_model_wandb(train_dataset, val_loader, train_step, state, config_dict,
-                      project_name=None):
+                      num_epochs, checkpoint_path, project_name=None):
     use_wandb = project_name is not None
     if use_wandb:
         wandb.init(
@@ -181,9 +185,9 @@ def train_model_wandb(train_dataset, val_loader, train_step, state, config_dict,
         val_loader,
         train_step,
         state,
-        config_dict["num_epochs"],
+        num_epochs,
         use_wandb=use_wandb,
-        checkpoint_path=config_dict['checkpoint_path'],
+        checkpoint_path=checkpoint_path,
     )
     if use_wandb:
         wandb.finish()
@@ -201,13 +205,10 @@ def flatten_tree(tree_node, parent_key='', sep='_'):
     return dict(items)
 
 
-def get_state_from_config(config, init_key):
-    #resnet18 = ResNet18(output='logits', pretrained=None, normalize=False, num_classes=config["n_targets"])
-    #variables = resnet18.init(init_key, jnp.zeros(config["input_shape"]))
+def get_state_from_config(dataset_config, optimizer_config, init_key):
+    model, variables = get_model_and_variables(dataset_config["model"], init_key)
 
-    model, variables = get_model_and_variables(config["dataset"]["model"], init_key)
-
-    optimizer = get_optimizer(config["optimizer"])
+    optimizer = get_optimizer(optimizer_config)
     return TrainStateWithStats.create(
         apply_fn = model.apply,
         params = variables['params'],

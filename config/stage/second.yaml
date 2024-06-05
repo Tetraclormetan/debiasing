@@ -1,4 +1,0 @@
-name: unbiased_training
-use_weighted_sampling: True
-upsampling_constant: 20
-first_stage_result_path: data/biases.npy

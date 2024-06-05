@@ -1,5 +1,4 @@
-name: Adam
+name: SGD
 init_params:
   learning_rate: 0.00001
-  b1: 0.9
-  b2: 0.999
+  momentum: 0.9
