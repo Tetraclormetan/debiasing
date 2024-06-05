@@ -128,7 +128,6 @@ def train(
         for i in range(len(train_dataset) // train_dataset.batch_size):
             batch = train_dataset.get_batch(i)
             state = train_step(state, batch)
-            break
 
         for metric, value in state.unmasked_metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics

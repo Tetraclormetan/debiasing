@@ -62,7 +62,6 @@ def stage_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
 
 @hydra.main(version_base=None, config_path="config", config_name="config.yaml")
 def main_runner(config : DictConfig) -> None:
-    print(config)
     if config['run_first_stage']:
         stage_pipeline(config, is_first_stage=True)
     if config['run_second_stage']:
