@@ -27,54 +27,7 @@ class TrainStateWithStats(train_state.TrainState):
         unmasked_metrics: Metrics
         conflicting_accuracy: metrics.Average
 
-
-@jax.jit
-def train_step_CE(state, batch):
-  """Train for a single step."""
-  image, label, _ = batch
-  def loss_fn(params):
-    logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats},
-                            image, train=True, mutable=['batch_stats'])
-    loss = optax.softmax_cross_entropy_with_integer_labels(
-        logits=logits, labels=label).mean()
-    return loss, new_batch_stats
-  grad_fn = jax.grad(loss_fn, has_aux=True)
-  grads, new_batch_stats = grad_fn(state.params)
-  state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
-  return state
-
-
-@jax.jit
-def train_step_GCE(state, batch, q=0.7):
-  """Train for a single step."""
-  images, labels, _ = batch
-  def loss_fn(params):
-    logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, images,
-                            train=True, mutable=['batch_stats'])
-    logits_max = jnp.max(logits, axis=-1, keepdims=True)
-    logits -= jax.lax.stop_gradient(logits_max)
-    label_logits = jnp.take_along_axis(logits, labels[..., None], axis=-1)[..., 0]
-    normalizers = jnp.sum(jnp.exp(logits), axis=-1)
-    
-    # outputs = jnp.exp(label_logits) / normalizers
-    # loss = (1 - outputs**q).mean() / q
-    log_probs_with_q = q * (label_logits - jnp.log(normalizers))
-    loss = (1 - jnp.exp(log_probs_with_q).mean()) / q
-    return loss, new_batch_stats
-  grad_fn = jax.grad(loss_fn, has_aux=True)
-  grads, new_batch_stats = grad_fn(state.params)
-  state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
-  return state
-
-
-@jax.jit
-def compute_metrics(*, state: TrainStateWithStats, batch):
-    images, labels, biases = batch
-    logits = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, images,
-                            train=False)
-    loss = optax.softmax_cross_entropy_with_integer_labels(
-        logits=logits, labels=labels).mean()
-    
+def metrics_from_logits(state, loss, logits, labels, biases):
     metric_updates = state.unmasked_metrics.single_from_model_output(
         logits=logits, labels=labels, loss=loss)
     unmasked_metrics = state.unmasked_metrics.merge(metric_updates)
@@ -84,10 +37,63 @@ def compute_metrics(*, state: TrainStateWithStats, batch):
         logits=logits, labels=labels, mask=biases - 1)
     conflicting_accuracy = state.conflicting_accuracy.merge(conflicting_update)
     state = state.replace(conflicting_accuracy=conflicting_accuracy)
-
     return state
 
-# TODO: add metrics for unbiased?
+
+@jax.jit
+def train_step_CE(state, batch):
+    """Train for a single step."""
+    images, labels, biases = batch
+    def loss_fn(params):
+        logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats},
+                                images, train=True, mutable=['batch_stats'])
+        loss = optax.softmax_cross_entropy_with_integer_labels(
+            logits=logits, labels=labels).mean()
+        return loss, (new_batch_stats, logits)
+    value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    aux, grads = value_and_grad_fn(state.params)
+    new_batch_stats, logits = aux[1]
+    loss = aux[0]
+    state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
+    state = metrics_from_logits(state, loss, logits, labels, biases)
+    return state
+
+
+@jax.jit
+def train_step_GCE(state, batch, q=0.7):
+    """Train for a single step."""
+    images, labels, biases = batch
+    def loss_fn(params):
+        logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, images,
+                            train=True, mutable=['batch_stats'])
+        logits_max = jnp.max(logits, axis=-1, keepdims=True)
+        logits -= jax.lax.stop_gradient(logits_max)
+        label_logits = jnp.take_along_axis(logits, labels[..., None], axis=-1)[..., 0]
+        normalizers = jnp.sum(jnp.exp(logits), axis=-1)
+    
+        # outputs = jnp.exp(label_logits) / normalizers
+        # loss = (1 - outputs**q).mean() / q
+        log_probs_with_q = q * (label_logits - jnp.log(normalizers))
+        loss = (1 - jnp.exp(log_probs_with_q).mean()) / q
+        return loss, (new_batch_stats, logits)
+    value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    aux, grads = value_and_grad_fn(state.params)
+    new_batch_stats, logits = aux[1]
+    loss = aux[0]
+    state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
+    state = metrics_from_logits(state, loss, logits, labels, biases)
+    return state
+
+
+@jax.jit
+def compute_metrics(*, state: TrainStateWithStats, batch):
+    images, labels, biases = batch
+    logits = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, images,
+                            train=False)
+    loss = optax.softmax_cross_entropy_with_integer_labels(
+        logits=logits, labels=labels).mean()
+    state = metrics_from_logits(state, loss, logits, labels, biases)
+    return state
 
 
 def train(
@@ -122,7 +128,7 @@ def train(
         for i in range(len(train_dataset) // train_dataset.batch_size):
             batch = train_dataset.get_batch(i)
             state = train_step(state, batch)
-            state = compute_metrics(state=state, batch=batch)
+            break
 
         for metric, value in state.unmasked_metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
