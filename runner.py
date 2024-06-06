@@ -5,7 +5,7 @@ import hydra
 from omegaconf import DictConfig
 from functools import partial
 
-from modeling.train_utils import train_model_wandb, train_step_GCE, train_step_CE, get_state_from_config
+from modeling.train_utils import train_model_wandb, train_step_GCE, train_step_CE, get_state_from_config, compute_metrics
 from data_utils.dataloaders import get_data_from_config, save_biases
 
 
@@ -58,6 +58,11 @@ def stage_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
     if is_first_stage and stage_config['save_predicted_errors']:
         biases = predict_bias(state, train_loader_sequential, len(train_dataset))
         save_biases(biases, stage_config['first_stage_result_path'])
+    
+    for test_batch in val_loader:
+        state = compute_metrics(state=state, batch=test_batch)
+    
+    return state.conflicting_accuracy.compute()
 
 
 @hydra.main(version_base=None, config_path="config", config_name="config.yaml")

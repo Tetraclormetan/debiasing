@@ -17,8 +17,8 @@ wandb = "^0.17.0"
 ipykernel = "^6.29.4"
 flaxmodels = {git = "https://github.com/matthias-wright/flaxmodels.git"}
 hydra-core = "^1.3.2"
-hydra-optuna-sweeper = "^1.2.0"
 orbax-checkpoint = "^0.5.15"
+optuna = "^3.6.1"
 
 
 [build-system]

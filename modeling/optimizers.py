@@ -9,6 +9,8 @@ def get_optimizer(optimizer_dict: Dict):
         return optax.adam(**optimizer_dict["init_params"])
     elif optimizer_dict["name"] == "AdamW":
         return optax.adamw(**optimizer_dict["init_params"])
+    elif optimizer_dict["name"] == "SGD":
+        return optax.sgd(**optimizer_dict["init_params"])
     else:
         raise ValueError("optimizer not implemented")
         #return optax.sgd(**opt_params)
