@@ -39,7 +39,7 @@ def stage_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
 
     key_rng = jax.random.key(0)
     key_rng, model_key, data_key = jax.random.split(key_rng, 3)
-    state = get_state_from_config(dataset_config, optimizer_config, model_key)
+    state, _ = get_state_from_config(dataset_config, optimizer_config, model_key)
     train_dataset, val_loader, train_loader_sequential = \
         get_data_from_config(dataset_config, stage_config, data_key)
     

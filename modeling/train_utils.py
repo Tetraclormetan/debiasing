@@ -104,6 +104,7 @@ def train(
     num_epochs,
     checkpoint_path,
     use_wandb=False,
+    train_rng_key=jax.random.key(42)
 ):
     use_checkpoints = checkpoint_path is not None
     if use_checkpoints:
@@ -127,7 +128,7 @@ def train(
         train_dataset.new_permutation()
         for i in range(len(train_dataset) // train_dataset.batch_size):
             batch = train_dataset.get_batch(i)
-            state = train_step(state, batch)
+            state = train_step(state, batch, train_rng_key)
 
         for metric, value in state.unmasked_metrics.compute().items(): # compute metrics
             metrics_history[f'train_{metric}'].append(value) # record metrics
@@ -221,4 +222,4 @@ def get_state_from_config(dataset_config, optimizer_config, init_key):
         batch_stats = variables['batch_stats'],
         unmasked_metrics=Metrics.empty(),
         conflicting_accuracy = metrics.Accuracy.empty()
-    )
+    ), model
