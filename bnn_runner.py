@@ -21,7 +21,7 @@ def kl_single_bnn(params):
     return kernel_kl + bias_kl
 
 @jax.jit
-def train_step_ELBO(state, batch, bnn_key):
+def train_step_ELBO(state, batch, bnn_key, kl_discount=0.001):
     """Train for a single step."""
     bnn_train_key = jax.random.fold_in(key=bnn_key, data=state.step)
     images, labels, biases = batch
@@ -31,7 +31,7 @@ def train_step_ELBO(state, batch, bnn_key):
         cross_entropy = optax.softmax_cross_entropy_with_integer_labels(
             logits=logits, labels=labels).mean()
         kl_bnn = kl_single_bnn(params["bnn"])
-        loss = cross_entropy - kl_bnn
+        loss = cross_entropy - kl_discount * kl_bnn
         return loss, (new_batch_stats, logits)
     value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     aux, grads = value_and_grad_fn(state.params)
@@ -57,7 +57,7 @@ def bnn_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
     train_dataset, val_loader, train_loader_sequential = \
         get_data_from_config(dataset_config, stage_config, data_key)
     
-    train_step = train_step_ELBO
+    train_step = partial(train_step_ELBO, kl_discount=0.001)
 
     state = train_model_wandb(train_dataset, val_loader, train_step, state, config_for_logging,
                             num_epochs=stage_config['num_epochs'], 
@@ -68,9 +68,11 @@ def bnn_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
     entropys = []
     biases = []
     train_rng_key, key_rng = jax.random.split(key_rng)
-    for test_batch in train_dataset:
+    train_dataset.new_permutation()
+    for i in range(len(train_dataset) // train_dataset.batch_size):
+        batch = train_dataset.get_batch(i)
         train_key=jax.random.fold_in(train_rng_key, data=state.step)
-        state, entropy, biase, lasels = compute_distributions(state=state, batch=test_batch, rng=train_key)
+        state, entropy, biase, labels = compute_distributions(state=state, batch=batch, rng=train_key)
         entropys.append(entropy)
         biases.append(biase)
     entropy = jnp.stack(entropys)
