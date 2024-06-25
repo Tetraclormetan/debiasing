@@ -4,8 +4,7 @@
 import numpy as np
 import torch
 import os
-from torchvision import datasets
-from torchvision import transforms
+#from torchvision import transforms
 from PIL import Image
 from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
@@ -14,17 +13,19 @@ from torch.utils.data import ConcatDataset
 
 class CIFAR10C(Dataset):
 
-    train_transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
+    train_transform = None
+    # transforms.Compose([
+    #     transforms.RandomCrop(32, padding=4),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    # ])
 
-    eval_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
+    eval_transform = None
+    # transforms.Compose([
+    #     transforms.ToTensor(),
+    #     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    # ])
 
     def __init__(self, data_dir="./data/cifar10c", env="train", bias_amount=0.95, return_index = False):
         self.data_dir = data_dir
