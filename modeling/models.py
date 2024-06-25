@@ -74,14 +74,14 @@ class ResnetLastBNN(nn.Module):
 
     def __call__(self, inputs, train: bool):
         embeddings = self.resnet(inputs, train)
-        output = self.bnn(embeddings, deterministic=False)
+        output = self.bnn(embeddings, deterministic=not train)
         return output
     
     def estimate_variation(self, inputs, train: bool, n_trials: int = 10):
         embeddings = self.resnet(inputs, train)
         results = jnp.zeros((n_trials, inputs.shape[0], self.bnn.out_features))
         for i in range(n_trials):
-            results = results.at[i].set(self.bnn(embeddings))
+            results = results.at[i].set(self.bnn(embeddings, deterministic=False))
         return results
 
 
