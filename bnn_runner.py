@@ -30,7 +30,9 @@ def train_step_ELBO(state, batch, bnn_key, kl_discount=0.001):
                                 images, train=True, mutable=['batch_stats'], rngs={'default':bnn_train_key})
         cross_entropy = optax.softmax_cross_entropy_with_integer_labels(
             logits=logits, labels=labels).mean()
-        kl_bnn = kl_single_bnn(params["bnn"])
+        kl_bnn = 0
+        for layer in params["bnn"].values():
+            kl_bnn += kl_single_bnn(layer)
         loss = cross_entropy + kl_discount * kl_bnn
         return loss, (new_batch_stats, logits)
     value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)

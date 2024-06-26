@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import lax
 from jax import random as jrandom
 from flaxmodels import ResNet18
-from typing import Callable, Optional, Any, Union, Tuple, Dict
+from typing import Callable, Optional, Any, Union, Tuple, Dict, List
 
 
 
@@ -68,9 +68,28 @@ class LinearBNN(nn.Module):
         return kernel, bias
 
 
+class SequentialBNN(nn.Module):
+    input_size: int
+    feature_sizes: List[int]
+    
+    def setup(self) -> None:
+        self.layers = [LinearBNN(
+                       in_features=(self.input_size if idx == 0 else self.feature_sizes[idx - 1]),
+                       out_features=out_size, name=f'bnn_{idx}')
+                       for idx, out_size in enumerate(self.feature_sizes)]
+
+    def __call__(self, inputs, deterministic: Optional[bool] = None):#, rng: Optional[Any] = None):
+        #rngs = jrandom.split(rng, len(self.layers))
+        features = inputs
+        for i, layer in enumerate(self.layers):
+            features = layer(features, deterministic)#, rngs[i])
+        return features
+
+
+
 class ResnetLastBNN(nn.Module):
     resnet: nn.Module
-    bnn: LinearBNN
+    bnn: SequentialBNN
 
     def __call__(self, inputs, train: bool):
         embeddings = self.resnet(inputs, train)
@@ -79,7 +98,7 @@ class ResnetLastBNN(nn.Module):
     
     def estimate_variation(self, inputs, train: bool, n_trials: int = 10):
         embeddings = self.resnet(inputs, train)
-        results = jnp.zeros((n_trials, inputs.shape[0], self.bnn.out_features))
+        results = jnp.zeros((n_trials, inputs.shape[0], self.bnn.feature_sizes[-1]))
         for i in range(n_trials):
             results = results.at[i].set(self.bnn(embeddings, deterministic=False))
         return results
@@ -95,12 +114,12 @@ def get_model_and_variables(model_config_dict, init_key):
         print(model_config_dict,model_config_dict["resnet"])
         resnet_params = resnet.init(
             resnet_key, jnp.zeros(model_config_dict["input_shape"], jnp.float32))
-        bnn = LinearBNN(
-            in_features=model_config_dict["resnet"]["num_classes"],
-            out_features=model_config_dict["num_classes"]
+        bnn = SequentialBNN(
+            input_size=model_config_dict["resnet"]["num_classes"],
+            feature_sizes=[100, model_config_dict["num_classes"]]
         )
         bnn_params = bnn.init(
-            bnn_key, jnp.zeros((1, model_config_dict["resnet"]["num_classes"]), jnp.float32), rng=bnn_key)
+            bnn_key, jnp.zeros((1, model_config_dict["resnet"]["num_classes"]), jnp.float32))
         model = ResnetLastBNN(resnet, bnn)
         variables = FrozenDict({
             'params': {
