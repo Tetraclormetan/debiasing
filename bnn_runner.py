@@ -31,7 +31,7 @@ def train_step_ELBO(state, batch, bnn_key, kl_discount=0.001):
         cross_entropy = optax.softmax_cross_entropy_with_integer_labels(
             logits=logits, labels=labels).mean()
         kl_bnn = kl_single_bnn(params["bnn"])
-        loss = cross_entropy - kl_discount * kl_bnn
+        loss = cross_entropy + kl_discount * kl_bnn
         return loss, (new_batch_stats, logits)
     value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     aux, grads = value_and_grad_fn(state.params)
@@ -57,28 +57,36 @@ def bnn_pipeline(config_ : DictConfig, is_first_stage: bool) -> None:
     train_dataset, val_loader, train_loader_sequential = \
         get_data_from_config(dataset_config, stage_config, data_key)
     
-    train_step = partial(train_step_ELBO, kl_discount=0.001)
+    train_step = partial(train_step_ELBO, kl_discount=0.0001)
 
     state = train_model_wandb(train_dataset, val_loader, train_step, state, config_for_logging,
                             num_epochs=stage_config['num_epochs'], 
                             checkpoint_path=stage_config['checkpoint_path'],
-                            project_name=None)
+                            project_name="BNN")
     
     state = state.replace(apply_fn=partial(model.apply, method='estimate_variation'))
     entropys = []
     biases = []
+    means = []
+    stds = []
     train_rng_key, key_rng = jax.random.split(key_rng)
     train_dataset.new_permutation()
     for i in range(len(train_dataset) // train_dataset.batch_size):
         batch = train_dataset.get_batch(i)
         train_key=jax.random.fold_in(train_rng_key, data=state.step)
-        state, entropy, biase, labels = compute_distributions(state=state, batch=batch, rng=train_key)
+        state, entropy, biase, label_probs_mean, label_probs_std = compute_distributions(state=state, batch=batch, rng=train_key)
         entropys.append(entropy)
         biases.append(biase)
+        means.append(label_probs_mean)
+        stds.append(label_probs_std)
     entropy = jnp.stack(entropys)
     bias = jnp.stack(biases)
+    mean = jnp.stack(means)
+    std = jnp.stack(stds)
     save_biases(bias, 'data/biases_.npy')
     save_biases(entropy, 'data/entropy_.npy')
+    save_biases(mean, 'data/means.npy')
+    save_biases(std, 'data/std.npy')
     return state.conflicting_accuracy.compute()
 
 @jax.jit
@@ -89,7 +97,12 @@ def compute_distributions(*, state: TrainStateWithStats, batch, rng):
     
     probs = nn.softmax(logits, axis = -1)
     entropy = jnp.mean(probs * jnp.log(probs), axis=[0, 2])
-    return state, entropy, biases, labels
+    label_probs =  probs[jnp.arange(probs.shape[0])[:, None],
+                         jnp.arange(probs.shape[1]), 
+                         labels]
+    label_probs_mean = jnp.mean(label_probs, axis=0)
+    label_probs_std = jnp.std(label_probs, axis=0)
+    return state, entropy, biases, label_probs_mean, label_probs_std
 
 @hydra.main(version_base=None, config_path="config", config_name="config.yaml")
 def bnn_runner(config : DictConfig) -> None:
