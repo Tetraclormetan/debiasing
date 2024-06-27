@@ -2,7 +2,7 @@ name: bias_identification
 num_epochs: 50
 save_predicted_errors: True
 use_weighted_sampling: False
-first_stage_result_path: data/tmp/biases.npy
+first_stage_result_path: data/biases.npy
 checkpoint_path: null
 defaults:
   - loss: ../../loss/GCE
