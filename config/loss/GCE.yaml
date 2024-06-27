@@ -1,0 +1,3 @@
+name: GCE
+params:
+  q: 0.7

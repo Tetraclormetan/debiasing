@@ -1,9 +1,9 @@
-name: bias_identification
+name: bias_identification_bnn
 num_epochs: 50
 save_predicted_errors: True
 use_weighted_sampling: False
 first_stage_result_path: data/tmp/biases.npy
 checkpoint_path: null
 defaults:
-  - loss: ../../loss/GCE
-  - model: ../../model/resnet
+  - loss: ../../loss/ELBO
+  - model: ../../model/resnet_bnn

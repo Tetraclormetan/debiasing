@@ -2,10 +2,4 @@ name: CIFAR10C
 class: data_utils/CIFAR10C.py
 batch_size: 32
 bias_amount: 0.95
-model: 
-  name: ResNet18
-  output: logits
-  pretrained: None
-  normalize: False
-  num_classes: 10
-  input_shape: [1,32,32,3]
+input_shape: [1,32,32,3]

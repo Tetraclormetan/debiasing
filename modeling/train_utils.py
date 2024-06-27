@@ -10,6 +10,7 @@ from clu import metrics
 from tqdm import tqdm
 import wandb 
 from omegaconf import DictConfig
+from functools import partial
 
 from modeling.models import get_model_and_variables
 from modeling.optimizers import get_optimizer
@@ -27,6 +28,7 @@ class TrainStateWithStats(train_state.TrainState):
         unmasked_metrics: Metrics
         conflicting_accuracy: metrics.Average
 
+
 def metrics_from_logits(state, loss, logits, labels, biases):
     metric_updates = state.unmasked_metrics.single_from_model_output(
         logits=logits, labels=labels, loss=loss)
@@ -37,51 +39,6 @@ def metrics_from_logits(state, loss, logits, labels, biases):
         logits=logits, labels=labels, mask=biases - 1)
     conflicting_accuracy = state.conflicting_accuracy.merge(conflicting_update)
     state = state.replace(conflicting_accuracy=conflicting_accuracy)
-    return state
-
-
-@jax.jit
-def train_step_CE(state, batch):
-    """Train for a single step."""
-    images, labels, biases = batch
-    def loss_fn(params):
-        logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats},
-                                images, train=True, mutable=['batch_stats'])
-        loss = optax.softmax_cross_entropy_with_integer_labels(
-            logits=logits, labels=labels).mean()
-        return loss, (new_batch_stats, logits)
-    value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    aux, grads = value_and_grad_fn(state.params)
-    new_batch_stats, logits = aux[1]
-    loss = aux[0]
-    state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
-    state = metrics_from_logits(state, loss, logits, labels, biases)
-    return state
-
-
-@jax.jit
-def train_step_GCE(state, batch, q=0.7):
-    """Train for a single step."""
-    images, labels, biases = batch
-    def loss_fn(params):
-        logits, new_batch_stats = state.apply_fn({"params": params, 'batch_stats': state.batch_stats}, images,
-                            train=True, mutable=['batch_stats'])
-        logits_max = jnp.max(logits, axis=-1, keepdims=True)
-        logits -= jax.lax.stop_gradient(logits_max)
-        label_logits = jnp.take_along_axis(logits, labels[..., None], axis=-1)[..., 0]
-        normalizers = jnp.sum(jnp.exp(logits), axis=-1)
-    
-        # outputs = jnp.exp(label_logits) / normalizers
-        # loss = (1 - outputs**q).mean() / q
-        log_probs_with_q = q * (label_logits - jnp.log(normalizers))
-        loss = (1 - jnp.exp(log_probs_with_q).mean()) / q
-        return loss, (new_batch_stats, logits)
-    value_and_grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    aux, grads = value_and_grad_fn(state.params)
-    new_batch_stats, logits = aux[1]
-    loss = aux[0]
-    state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
-    state = metrics_from_logits(state, loss, logits, labels, biases)
     return state
 
 
@@ -114,13 +71,14 @@ def train(
 
     state = train_state
 
-    metrics_history = {'train_loss': [],
-                   'train_accuracy': [],
-                   'val_loss': [],
-                   'val_accuracy': [],
-                   'train_conflicting_accuracy': [],
-                   'val_conflicting_accuracy': []
-                   }
+    metrics_history = {
+        'train_loss': [],
+        'train_accuracy': [],
+        'val_loss': [],
+        'val_accuracy': [],
+        'train_conflicting_accuracy': [],
+        'val_conflicting_accuracy': []
+    }
     
     early_stopping = EarlyStopping(min_delta=1e-4, patience=10)
 
@@ -148,7 +106,6 @@ def train(
         test_state = test_state.replace(unmasked_metrics=state.unmasked_metrics.empty()) # reset train_metrics for next training epoch
         test_state = test_state.replace(conflicting_accuracy=state.conflicting_accuracy.empty())
 
-        
         early_stopping.update(metrics_history['val_loss'][-1])
         if early_stopping.should_stop:
             print("Early stopping")
@@ -211,9 +168,8 @@ def flatten_tree(tree_node, parent_key='', sep='_'):
     return dict(items)
 
 
-def get_state_from_config(dataset_config, optimizer_config, init_key):
-    model, variables = get_model_and_variables(dataset_config["model"], init_key)
-
+def get_state_from_config(model_config, optimizer_config, init_key):
+    model, variables = get_model_and_variables(model_config, init_key)
     optimizer = get_optimizer(optimizer_config)
     return TrainStateWithStats.create(
         apply_fn = model.apply,
@@ -223,3 +179,79 @@ def get_state_from_config(dataset_config, optimizer_config, init_key):
         unmasked_metrics=Metrics.empty(),
         conflicting_accuracy = metrics.Accuracy.empty()
     ), model
+
+
+def CE_loss_fn(params, apply_fn, batch_stats, train_rng_key, inputs, labels):
+    logits, new_batch_stats = apply_fn({"params": params, 'batch_stats': batch_stats},
+                                        inputs, train=True, mutable=['batch_stats'],
+                                        rngs={'default':train_rng_key})
+    loss = optax.softmax_cross_entropy_with_integer_labels(
+        logits=logits, labels=labels).mean()
+    return loss, (new_batch_stats, logits)
+
+
+def GCE_loss_fn(params, apply_fn, batch_stats, train_rng_key, inputs, labels, q):
+    logits, new_batch_stats = apply_fn({"params": params, 'batch_stats': batch_stats}, inputs,
+                        train=True, mutable=['batch_stats'],  rngs={'default':train_rng_key})
+    logits_max = jnp.max(logits, axis=-1, keepdims=True)
+    logits -= jax.lax.stop_gradient(logits_max)
+    label_logits = jnp.take_along_axis(logits, labels[..., None], axis=-1)[..., 0]
+    normalizers = jnp.sum(jnp.exp(logits), axis=-1)
+    # outputs = jnp.exp(label_logits) / normalizers
+    # loss = (1 - outputs**q).mean() / q
+    log_probs_with_q = q * (label_logits - jnp.log(normalizers))
+    loss = (1 - jnp.exp(log_probs_with_q).mean()) / q
+    return loss, (new_batch_stats, logits)
+
+
+def gaussian_kl(mu, logvar):
+    kl_divergence = -jnp.sum(1 + 2 * logvar - mu**2 - jnp.exp(2 * logvar)) / 2
+    return kl_divergence
+
+
+def kl_single_bnn(params):
+    kernel_kl = gaussian_kl(mu=params["kernel_mu"], logvar=params["kernel_logvar"])
+    bias_kl = gaussian_kl(mu=params["bias_mu"], logvar=params["bias_logvar"])
+    return kernel_kl + bias_kl
+
+
+def ELBO_loss_fn(params, apply_fn, batch_stats, train_rng_key, inputs, labels, kl_multiplier):
+    logits, new_batch_stats = apply_fn({"params": params, 'batch_stats': batch_stats},
+                            inputs, train=True, mutable=['batch_stats'], rngs={'default':train_rng_key})
+    cross_entropy = optax.softmax_cross_entropy_with_integer_labels(
+        logits=logits, labels=labels).mean()
+    kl_bnn = 0
+    for layer in params["bnn"].values():
+        kl_bnn += kl_single_bnn(layer)
+    loss = cross_entropy + kl_multiplier * kl_bnn
+    return loss, (new_batch_stats, logits)
+
+
+def general_train_step(state, batch, rng_key=None, loss_fn=None):
+    """Train for a single step."""
+    images, labels, biases = batch
+    train_rng_key = jax.random.fold_in(key=rng_key, data=state.step)
+    one_argument_loss = partial(loss_fn, apply_fn = state.apply_fn, batch_stats=state.batch_stats,
+                                train_rng_key=train_rng_key, inputs=images, labels=labels)
+    value_and_grad_fn = jax.value_and_grad(one_argument_loss, has_aux=True)
+    aux, grads = value_and_grad_fn(state.params)
+    new_batch_stats, logits = aux[1]
+    loss = aux[0]
+    state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats['batch_stats'])
+    state = metrics_from_logits(state, loss, logits, labels, biases)
+    return state
+
+
+def get_loss_fn(loss_config):
+    if loss_config['name'] == 'CE':
+        return CE_loss_fn
+    elif loss_config['name'] == 'GCE':
+        return partial(GCE_loss_fn, **loss_config['params'])
+    elif loss_config['name'] == 'ELBO':
+        return partial(ELBO_loss_fn, **loss_config['params'])
+    else:
+        raise ValueError(f"Unexpected loss {loss_config['name']}")
+
+
+def get_train_step_from_config(loss_config):
+    return jax.jit(partial(general_train_step, loss_fn=get_loss_fn(loss_config)))

@@ -1,0 +1,7 @@
+name: ResNet18
+input_shape: [1,224,224,3]
+init_params:
+  output: logits
+  pretrained: None
+  normalize: False
+  num_classes: 10

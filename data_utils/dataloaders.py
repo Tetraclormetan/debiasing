@@ -130,7 +130,7 @@ def get_cifar(dataset_config, stage_config, data_key):
 
     train_inmemory = get_inmemory_dataset(dataset=train_dataset, rng_key=train_key, 
                         init_transform=get_static_transform(), 
-                        load_transform=get_dynamic_transform(dataset_config["model"]['input_shape']),
+                        load_transform=get_dynamic_transform(dataset_config['input_shape']),
                         batch_size=dataset_config["batch_size"],
                         weights=train_data_weights)
     val_inmemory = get_inmemory_dataset(dataset=val_dataset, rng_key=val_key, 

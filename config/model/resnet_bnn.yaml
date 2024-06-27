@@ -1,0 +1,8 @@
+name: ResNet18BNN
+input_shape: [1,224,224,3]
+num_features: [100, 10]
+resnet:
+  output: logits
+  pretrained: None
+  normalize: False
+  num_classes: 100

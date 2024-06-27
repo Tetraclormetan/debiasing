@@ -106,7 +106,7 @@ class ResnetLastBNN(nn.Module):
 
 def get_model_and_variables(model_config_dict, init_key):
     if model_config_dict["name"] == "ResNet18":
-        model = ResNet18(**model_config_dict)
+        model = ResNet18(**model_config_dict["init_params"])
         variables = model.init(init_key, jnp.zeros(model_config_dict["input_shape"]))
     elif model_config_dict["name"] == "ResNet18BNN":
         resnet_key, bnn_key = jrandom.split(init_key)
@@ -116,7 +116,7 @@ def get_model_and_variables(model_config_dict, init_key):
             resnet_key, jnp.zeros(model_config_dict["input_shape"], jnp.float32))
         bnn = SequentialBNN(
             input_size=model_config_dict["resnet"]["num_classes"],
-            feature_sizes=[100, model_config_dict["num_classes"]]
+            feature_sizes=model_config_dict["num_features"]
         )
         bnn_params = bnn.init(
             bnn_key, jnp.zeros((1, model_config_dict["resnet"]["num_classes"]), jnp.float32))
