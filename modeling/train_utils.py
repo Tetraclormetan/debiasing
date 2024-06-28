@@ -226,6 +226,21 @@ def ELBO_loss_fn(params, apply_fn, batch_stats, train_rng_key, inputs, labels, k
     loss = cross_entropy + kl_multiplier * kl_bnn
     return loss, (new_batch_stats, logits)
 
+    
+def GELBO_loss_fn(params, apply_fn, batch_stats, train_rng_key, inputs, labels, kl_multiplier, q):
+    cross_entropy, (new_batch_stats, logits) = GCE_loss_fn(params=params,
+                                                apply_fn=apply_fn,
+                                                batch_stats=batch_stats,
+                                                train_rng_key=train_rng_key,
+                                                inputs=inputs,
+                                                labels=labels,
+                                                q=q)
+    kl_bnn = 0
+    for layer in params["bnn"].values():
+        kl_bnn += kl_single_bnn(layer)
+    loss = cross_entropy + kl_multiplier * kl_bnn
+    return loss, (new_batch_stats, logits)
+
 
 def general_train_step(state, batch, rng_key=None, loss_fn=None):
     """Train for a single step."""
@@ -249,6 +264,8 @@ def get_loss_fn(loss_config):
         return partial(GCE_loss_fn, **loss_config['params'])
     elif loss_config['name'] == 'ELBO':
         return partial(ELBO_loss_fn, **loss_config['params'])
+    elif loss_config['name'] == 'GELBO':
+        return partial(GELBO_loss_fn, **loss_config['params'])
     else:
         raise ValueError(f"Unexpected loss {loss_config['name']}")
 

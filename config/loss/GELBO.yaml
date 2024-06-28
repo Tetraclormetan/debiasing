@@ -1,0 +1,4 @@
+name: ELBO
+params:
+  kl_multiplier: 0.000005
+  q: 0.7
