@@ -126,7 +126,10 @@ def get_cifar(dataset_config, stage_config, data_key):
     train_data_weights = None
     if stage_config['use_weighted_sampling'] == True:
         correct_predictions = load_biases(stage_config['first_stage_result_path'])
-        train_data_weights = jax.numpy.where(correct_predictions, 1, stage_config["upsampling_constant"])
+        num_biased = correct_predictions.sum()
+        num_unbiased = len(correct_predictions) - num_biased
+        balancing_multiplier = num_biased / num_unbiased
+        train_data_weights = jax.numpy.where(correct_predictions, 1, balancing_multiplier * stage_config["upsampling_constant"])
 
     train_inmemory = get_inmemory_dataset(dataset=train_dataset, rng_key=train_key, 
                         init_transform=get_static_transform(), 

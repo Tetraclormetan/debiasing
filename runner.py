@@ -41,7 +41,6 @@ def predict_bias(state: TrainStateWithStats, model, train_loader_determ, train_l
     bias = jnp.zeros(train_len, dtype=int)
     index = 0
     step_fn = predict_bias_bnn_step if is_bnn else predict_bias_step
-    print(is_bnn)
     if is_bnn:
         state = state.replace(apply_fn=partial(model.apply, method='estimate_variation'))
 

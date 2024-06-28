@@ -1,7 +1,7 @@
 name: unbiased_training
-num_epochs: 100
+num_epochs: 200
 use_weighted_sampling: True
-upsampling_constant: 20
+upsampling_constant: 4
 first_stage_result_path: data/biases.npy
 checkpoint_path: null
 defaults:

@@ -1,5 +1,5 @@
 name: bias_identification_bnn
-num_epochs: 50
+num_epochs: 100
 save_predicted_errors: True
 use_weighted_sampling: False
 first_stage_result_path: data/biases.npy
