@@ -5,6 +5,7 @@ from flax.linen import softmax
 import hydra
 from omegaconf import DictConfig
 from functools import partial
+from sklearn.metrics import classification_report
 
 from modeling.train_utils import (train_model_wandb, get_train_step_from_config, 
                                   get_state_from_config, compute_metrics, TrainStateWithStats)
@@ -37,17 +38,23 @@ def predict_bias_bnn_step(state: TrainStateWithStats, batch, rng):
 
 def predict_bias(state: TrainStateWithStats, model, train_loader_determ, train_len, is_bnn, rng_key):
     bias_predicted = jnp.zeros(train_len, dtype=int)
+    bias = jnp.zeros(train_len, dtype=int)
     index = 0
     step_fn = predict_bias_bnn_step if is_bnn else predict_bias_step
+    print(is_bnn)
     if is_bnn:
         state = state.replace(apply_fn=partial(model.apply, method='estimate_variation'))
 
     for batch in train_loader_determ:
         step_key = jax.random.fold_in(rng_key, data=state.step)
+        _, _, batch_bias = batch
         batch_predicted = step_fn(state, batch, step_key)
         num_elements = len(batch[0])
         bias_predicted = bias_predicted.at[index: index + num_elements].set(batch_predicted)
+        bias = bias.at[index: index + num_elements].set(batch_bias)
         index += num_elements
+
+    print(classification_report)
 
     if is_bnn:
         state = state.replace(apply_fn=partial(model.apply))
