@@ -54,7 +54,7 @@ def predict_bias(state: TrainStateWithStats, model, train_loader_determ, train_l
         bias = bias.at[index: index + num_elements].set(batch_bias)
         index += num_elements
 
-    print(classification_report)
+    print(classification_report(bias, bias_predicted))
 
     if is_bnn:
         state = state.replace(apply_fn=partial(model.apply))
